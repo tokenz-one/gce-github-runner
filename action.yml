@@ -66,9 +66,9 @@ inputs:
   image_family:
     description: The image family for the operating system that the boot disk will be initialized with.
     required: false
-  preemptible:
-    description: Use GCE preemptible VM instance; https://cloud.google.com/compute/docs/instances/preemptible
-    default: false
+  provisioning_model:
+    description: Use GCE Standard or Spot VM instance; https://cloud.google.com/compute/docs/instances/create-use-spot
+    default: STANDARD
     required: true
   ephemeral:
     description: Set GitHub runner to be ephemeral; https://docs.github.com/en/actions/hosting-your-own-runners/autoscaling-with-self-hosted-runners#using-ephemeral-runners-for-autoscaling
@@ -129,7 +129,7 @@ runs:
         --image=${{ inputs.image }}
         --image_family=${{ inputs.image_family }}
         --boot_disk_type=${{ inputs.boot_disk_type }}
-        --preemptible=${{ inputs.preemptible }}
+        --provisioning_model=${{ inputs.provisioning_model }}
         --ephemeral=${{ inputs.ephemeral }}
         --no_external_address=${{ inputs.no_external_address }}
         --actions_preinstalled=${{ inputs.actions_preinstalled }}
