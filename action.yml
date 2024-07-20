@@ -35,6 +35,10 @@ inputs:
   disk_size:
     description: VM disk size.
     required: false
+  network_tier:
+    description: Network tier for the VM instance. https://cloud.google.com/network-tiers/docs/overview
+    default: PREMIUM
+    required: false
   network:
     description: Specifies the network that the VM instances are a part of.
     required: false
@@ -118,6 +122,7 @@ runs:
         --runner_ver=${{ inputs.runner_ver }}
         --machine_zone=${{ inputs.machine_zone }}
         --machine_type=${{ inputs.machine_type }}
+        --network_tier=${{ inputs.network_tier }}
         --network=${{ inputs.network }}
         --subnet=${{ inputs.subnet }}
         --accelerator=${{ inputs.accelerator }}

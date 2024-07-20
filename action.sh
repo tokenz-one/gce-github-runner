@@ -29,6 +29,7 @@ runner_service_account=
 image_project=
 image=
 image_family=
+network_tier=
 network=
 scopes=
 shutdown_timeout=
@@ -56,6 +57,7 @@ while getopts_long :h opt \
   image_project optional_argument \
   image optional_argument \
   image_family optional_argument \
+  network_tier optional_argument \
   network optional_argument \
   scopes required_argument \
   shutdown_timeout required_argument \
@@ -108,6 +110,9 @@ do
       ;;
     image_family)
       image_family=${OPTLARG-$image_family}
+      ;;
+    network_tier)
+      network_tier=${OPTLARG-$network_tier}
       ;;
     network)
       network=${OPTLARG-$network}
@@ -185,6 +190,7 @@ function start_vm {
   provisioning_model_flag=$([[ -z "${provisioning_model}" ]] || echo "--provisioning-model=${provisioning_model}")
   ephemeral_flag=$([[ "${ephemeral}" == "true" ]] && echo "--ephemeral" || echo "")
   no_external_address_flag=$([[ "${no_external_address}" == "true" ]] && echo "--no-address" || echo "")
+  network_tier_flag=$([[ ! -z "${network_tier}"  ]] && echo "--network-tier=${network_tier}" || echo "")
   network_flag=$([[ ! -z "${network}"  ]] && echo "--network=${network}" || echo "")
   subnet_flag=$([[ ! -z "${subnet}"  ]] && echo "--subnet=${subnet}" || echo "")
   accelerator=$([[ ! -z "${accelerator}"  ]] && echo "--accelerator=${accelerator} --maintenance-policy=TERMINATE" || echo "")
@@ -303,6 +309,7 @@ function start_vm {
     ${image_family_flag} \
     ${provisioning_model_flag} \
     ${no_external_address_flag} \
+    ${network_tier_flag} \
     ${network_flag} \
     ${subnet_flag} \
     ${accelerator} \
