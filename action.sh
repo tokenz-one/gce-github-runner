@@ -33,7 +33,7 @@ network=
 scopes=
 shutdown_timeout=
 subnet=
-preemptible=
+provisioning_model=
 ephemeral=
 no_external_address=
 actions_preinstalled=
@@ -60,7 +60,7 @@ while getopts_long :h opt \
   scopes required_argument \
   shutdown_timeout required_argument \
   subnet optional_argument \
-  preemptible required_argument \
+  provisioning_model required_argument \
   ephemeral required_argument \
   no_external_address required_argument \
   actions_preinstalled required_argument \
@@ -121,8 +121,8 @@ do
     subnet)
       subnet=${OPTLARG-$subnet}
       ;;
-    preemptible)
-      preemptible=$OPTLARG
+    provisioning_model)
+      provisioning_model=$OPTLARG
       ;;
     ephemeral)
       ephemeral=$OPTLARG
@@ -182,7 +182,7 @@ function start_vm {
   image_family_flag=$([[ -z "${image_family}" ]] || echo "--image-family=${image_family}")
   disk_size_flag=$([[ -z "${disk_size}" ]] || echo "--boot-disk-size=${disk_size}")
   boot_disk_type_flag=$([[ -z "${boot_disk_type}" ]] || echo "--boot-disk-type=${boot_disk_type}")
-  preemptible_flag=$([[ "${preemptible}" == "true" ]] && echo "--preemptible" || echo "")
+  provisioning_model_flag=$([[ -z "${provisioning_model}" ]] || echo "--provisioning-model=${provisioning_model}")
   ephemeral_flag=$([[ "${ephemeral}" == "true" ]] && echo "--ephemeral" || echo "")
   no_external_address_flag=$([[ "${no_external_address}" == "true" ]] && echo "--no-address" || echo "")
   network_flag=$([[ ! -z "${network}"  ]] && echo "--network=${network}" || echo "")
@@ -301,7 +301,7 @@ function start_vm {
     ${image_project_flag} \
     ${image_flag} \
     ${image_family_flag} \
-    ${preemptible_flag} \
+    ${provisioning_model_flag} \
     ${no_external_address_flag} \
     ${network_flag} \
     ${subnet_flag} \
