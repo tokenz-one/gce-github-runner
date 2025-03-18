@@ -41,6 +41,8 @@ actions_preinstalled=
 maintenance_policy_terminate=
 arm=
 accelerator=
+vm_create_timeout=90
+vm_create_retries=2
 
 OPTLIND=1
 while getopts_long :h opt \
@@ -69,6 +71,8 @@ while getopts_long :h opt \
   arm required_argument \
   maintenance_policy_terminate optional_argument \
   accelerator optional_argument \
+  vm_create_timeout optional_argument \
+  vm_create_retries optional_argument \
   help no_argument "" "$@"
 do
   case "$opt" in
@@ -146,7 +150,13 @@ do
       ;;
     accelerator)
       accelerator=$OPTLARG
-      ;;      
+      ;;
+    vm_create_timeout)
+      vm_create_timeout=${OPTLARG-$vm_create_timeout}
+      ;;
+    vm_create_retries)
+      vm_create_retries=${OPTLARG-$vm_create_retries}
+      ;;
     h|help)
       usage
       exit 0
@@ -271,7 +281,7 @@ function start_vm {
       $startup_script"
     fi
   fi
-  
+
   # GCE VM label values requirements:
   # - can contain only lowercase letters, numeric characters, underscores, and dashes
   # - have a maximum length of 63 characters
@@ -283,7 +293,7 @@ function start_vm {
   #   - All characters must be either a hyphen (-) or alphanumeric
   # - repository name
   #   - Max length: 100 code points
-  #   - All code points must be either a hyphen (-), an underscore (_), a period (.), 
+  #   - All code points must be either a hyphen (-), an underscore (_), a period (.),
   #     or an ASCII alphanumeric code point
   # ref: https://github.com/dead-claudia/github-limits
   function truncate_to_label {
@@ -297,41 +307,83 @@ function start_vm {
   gh_repo="$(truncate_to_label "${GITHUB_REPOSITORY##*/}")"
   gh_run_id="${GITHUB_RUN_ID}"
 
-  gcloud compute instances create ${VM_ID} \
-    --zone=${machine_zone} \
-    ${disk_size_flag} \
-    ${boot_disk_type_flag} \
-    --machine-type=${machine_type} \
-    --scopes=${scopes} \
-    ${service_account_flag} \
-    ${image_project_flag} \
-    ${image_flag} \
-    ${image_family_flag} \
-    ${provisioning_model_flag} \
-    ${no_external_address_flag} \
-    ${network_tier_flag} \
-    ${network_flag} \
-    ${subnet_flag} \
-    ${accelerator} \
-    ${maintenance_policy_flag} \
-    --labels=gh_ready=0,gh_repo_owner="${gh_repo_owner}",gh_repo="${gh_repo}",gh_run_id="${gh_run_id}" \
-    --metadata=startup-script="$startup_script" \
-    && echo "label=${VM_ID}" >> $GITHUB_OUTPUT
+  # Create VM with retry logic
+  local retry_count=0
+  local vm_created=false
 
-  safety_off
-  while (( i++ < 60 )); do
-    GH_READY=$(gcloud compute instances describe ${VM_ID} --zone=${machine_zone} --format='json(labels)' | jq -r .labels.gh_ready)
-    if [[ $GH_READY == 1 ]]; then
-      break
+  while [[ $retry_count -le $vm_create_retries ]]; do
+    # If this is a retry, create a new VM ID to avoid conflicts
+    if [[ $retry_count -gt 0 ]]; then
+      VM_ID="gce-gh-runner-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-retry${retry_count}"
+      echo "Retrying VM creation (attempt $retry_count of $vm_create_retries)..."
+      echo "The new GCE VM will be ${VM_ID}"
     fi
-    echo "${VM_ID} not ready yet, waiting 5 secs ..."
-    sleep 5
+
+    # Create VM instance
+    if gcloud compute instances create ${VM_ID} \
+      --zone=${machine_zone} \
+      ${disk_size_flag} \
+      ${boot_disk_type_flag} \
+      --machine-type=${machine_type} \
+      --scopes=${scopes} \
+      ${service_account_flag} \
+      ${image_project_flag} \
+      ${image_flag} \
+      ${image_family_flag} \
+      ${provisioning_model_flag} \
+      ${no_external_address_flag} \
+      ${network_tier_flag} \
+      ${network_flag} \
+      ${subnet_flag} \
+      ${accelerator} \
+      ${maintenance_policy_flag} \
+      --labels=gh_ready=0,gh_repo_owner="${gh_repo_owner}",gh_repo="${gh_repo}",gh_run_id="${gh_run_id}" \
+      --metadata=startup-script="$startup_script"; then
+
+      echo "label=${VM_ID}" >> $GITHUB_OUTPUT
+
+      # Wait for VM to be ready
+      safety_off
+      local i=0
+      local wait_time=$((vm_create_timeout / 5))
+      while (( i < wait_time )); do
+        GH_READY=$(gcloud compute instances describe ${VM_ID} --zone=${machine_zone} --format='json(labels)' | jq -r .labels.gh_ready)
+        if [[ $GH_READY == 1 ]]; then
+          vm_created=true
+          break
+        fi
+        echo "${VM_ID} not ready yet, waiting 5 secs ... ($(( (i+1) * 5 ))/${vm_create_timeout} seconds)"
+        sleep 5
+        i=$((i+1))
+      done
+
+      # Check if VM is ready
+      if [[ $vm_created == true ]]; then
+        echo "✅ ${VM_ID} ready ..."
+        break
+      else
+        echo "Timeout waiting for ${VM_ID} to be ready after ${vm_create_timeout} seconds, deleting VM..."
+        gcloud --quiet compute instances delete ${VM_ID} --zone=${machine_zone}
+      fi
+    else
+      echo "❌ Failed to create VM instance ${VM_ID}"
+    fi
+
+    retry_count=$((retry_count+1))
+
+    # If we've exhausted all retries, exit with error
+    if [[ $retry_count -gt $vm_create_retries ]]; then
+      echo "❌ Failed to create a working VM after ${vm_create_retries} retries"
+      exit 1
+    fi
   done
-  if [[ $GH_READY == 1 ]]; then
-    echo "✅ ${VM_ID} ready ..."
-  else
-    echo "Waited 5 minutes for ${VM_ID}, without luck, deleting ${VM_ID} ..."
-    gcloud --quiet compute instances delete ${VM_ID} --zone=${machine_zone}
+
+  # Restore safety settings
+  safety_on
+
+  # If VM creation was not successful, exit with error
+  if [[ $vm_created != true ]]; then
+    echo "❌ Failed to create a working VM within the timeout"
     exit 1
   fi
 }

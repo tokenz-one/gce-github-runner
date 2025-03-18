@@ -50,8 +50,8 @@ inputs:
       [count=COUNT],[type=TYPE]
         Attaches accelerators (e.g. GPUs) to the instances.
         TYPE
-        The specific type (e.g. nvidia-tesla-k80 for nVidia Tesla K80) of accelerator 
-        to attach to the instances. Use 'gcloud compute accelerator-types list' to 
+        The specific type (e.g. nvidia-tesla-k80 for nVidia Tesla K80) of accelerator
+        to attach to the instances. Use 'gcloud compute accelerator-types list' to
         learn about all available accelerator types.
         COUNT
         Number of accelerators to attach to each instance. The default value is 1.
@@ -103,6 +103,14 @@ inputs:
   boot_disk_type:
     description: "Boot disk type for the GCE instance (https://cloud.google.com/sdk/gcloud/reference/compute/disk-types/list)"
     required: false
+  vm_create_timeout:
+    description: "Timeout in seconds to wait for VM to be ready."
+    default: 90
+    required: false
+  vm_create_retries:
+    description: "Number of times to retry creating the VM if it fails to be ready within the timeout."
+    default: 2
+    required: false
 outputs:
   label:
     description: >-
@@ -140,4 +148,6 @@ runs:
         --actions_preinstalled=${{ inputs.actions_preinstalled }}
         --maintenance_policy_terminate=${{ inputs.maintenance_policy_terminate }}
         --arm=${{ inputs.arm }}
+        --vm_create_timeout=${{ inputs.vm_create_timeout }}
+        --vm_create_retries=${{ inputs.vm_create_retries }}
       shell: bash
