@@ -111,6 +111,14 @@ inputs:
     description: "Number of times to retry creating the VM if it fails to be ready within the timeout."
     default: 2
     required: false
+  max_run_duration:
+    description: "Maximum runtime duration for the VM instance in seconds. After this time, the instance will be automatically terminated."
+    default: 1800
+    required: false
+  instance_termination_action:
+    description: "Action to take when the instance is terminated. Valid values: DELETE, STOP."
+    default: "DELETE"
+    required: false
 outputs:
   label:
     description: >-
@@ -150,4 +158,6 @@ runs:
         --arm=${{ inputs.arm }}
         --vm_create_timeout=${{ inputs.vm_create_timeout }}
         --vm_create_retries=${{ inputs.vm_create_retries }}
+        --max_run_duration=${{ inputs.max_run_duration }}
+        --instance_termination_action=${{ inputs.instance_termination_action }}
       shell: bash

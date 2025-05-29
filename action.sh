@@ -43,6 +43,8 @@ arm=
 accelerator=
 vm_create_timeout=90
 vm_create_retries=2
+max_run_duration=1800
+instance_termination_action=DELETE
 
 OPTLIND=1
 while getopts_long :h opt \
@@ -73,6 +75,8 @@ while getopts_long :h opt \
   accelerator optional_argument \
   vm_create_timeout optional_argument \
   vm_create_retries optional_argument \
+  max_run_duration optional_argument \
+  instance_termination_action optional_argument \
   help no_argument "" "$@"
 do
   case "$opt" in
@@ -156,6 +160,12 @@ do
       ;;
     vm_create_retries)
       vm_create_retries=${OPTLARG-$vm_create_retries}
+      ;;
+    max_run_duration)
+      max_run_duration=${OPTLARG-$max_run_duration}
+      ;;
+    instance_termination_action)
+      instance_termination_action=${OPTLARG-$instance_termination_action}
       ;;
     h|help)
       usage
@@ -342,6 +352,8 @@ function start_vm {
       ${subnet_flag} \
       ${accelerator} \
       ${maintenance_policy_flag} \
+      --max-run-duration=${max_run_duration}s \
+      --instance-termination-action=${instance_termination_action} \
       --labels=gh_ready=0,gh_repo_owner="${gh_repo_owner}",gh_repo="${gh_repo}",gh_run_id="${gh_run_id}" \
       --metadata=startup-script="$startup_script"; then
 
