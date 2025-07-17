@@ -254,7 +254,12 @@ function start_vm {
     $startup_script"
   else
     if [[ "$runner_ver" = "latest" ]]; then
-      latest_ver=$(curl -sL https://api.github.com/repos/actions/runner/releases/latest | jq -r '.tag_name' | sed -e 's/^v//')
+      response=$(curl -sL https://api.github.com/repos/actions/runner/releases/latest)
+      if [[ -z "$response" ]]; then
+        echo "❌ Failed to fetch latest release info from GitHub"
+        exit 1
+      fi
+      latest_ver=$(echo "$response" | jq -r '.tag_name' | sed -e 's/^v//')
       runner_ver="$latest_ver"
       echo "✅ runner_ver=latest is specified. v$latest_ver is detected as the latest version."
       if [[ -z "$latest_ver" || "null" == "$latest_ver" ]]; then
