@@ -21,6 +21,7 @@ token=
 project_id=
 service_account_key=
 runner_ver=
+machine_region=
 machine_zone=
 machine_type=
 boot_disk_type=
@@ -53,7 +54,8 @@ while getopts_long :h opt \
   project_id required_argument \
   service_account_key required_argument \
   runner_ver required_argument \
-  machine_zone required_argument \
+  machine_region optional_argument \
+  machine_zone optional_argument \
   machine_type required_argument \
   boot_disk_type optional_argument \
   disk_size optional_argument \
@@ -94,6 +96,9 @@ do
       ;;
     runner_ver)
       runner_ver=$OPTLARG
+      ;;
+    machine_region)
+      machine_region=$OPTLARG
       ;;
     machine_zone)
       machine_zone=$OPTLARG
@@ -223,7 +228,7 @@ function start_vm {
 	cat <<-EOF > /etc/systemd/system/shutdown.sh
 	#!/bin/sh
 	sleep ${shutdown_timeout}
-	gcloud compute instances delete $VM_ID --zone=$machine_zone --quiet
+	gcloud compute instances delete $VM_ID      --zone=${current_zone} --quiet
 	EOF
 
 	cat <<-EOF > /etc/systemd/system/shutdown.service
@@ -248,11 +253,11 @@ function start_vm {
 
 	# See: https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/running-scripts-before-or-after-a-job
 	echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/bin/gce_runner_shutdown.sh" >.env
-	gcloud compute instances add-labels ${VM_ID} --zone=${machine_zone} --labels=gh_ready=0 && \\
+	gcloud compute instances add-labels ${VM_ID}      --zone=${current_zone} --labels=gh_ready=0 && \\
 	RUNNER_ALLOW_RUNASROOT=1 ./config.sh --url https://github.com/${GITHUB_REPOSITORY} --token ${RUNNER_TOKEN} --labels ${VM_ID} --unattended ${ephemeral_flag} --disableupdate && \\
 	./svc.sh install && \\
 	./svc.sh start && \\
-	gcloud compute instances add-labels ${VM_ID} --zone=${machine_zone} --labels=gh_ready=1
+	gcloud compute instances add-labels ${VM_ID}      --zone=${current_zone} --labels=gh_ready=1
 	# 3 days represents the max workflow runtime. This will shutdown the instance if everything else fails.
 	nohup sh -c \"sleep 3d && gcloud --quiet compute instances delete ${VM_ID} --zone=${machine_zone}\" > /dev/null &
   "
@@ -322,21 +327,62 @@ function start_vm {
   gh_repo="$(truncate_to_label "${GITHUB_REPOSITORY##*/}")"
   gh_run_id="${GITHUB_RUN_ID}"
 
+  # Validate either machine_region or machine_zone is provided
+  if [[ -z "$machine_region" && -z "$machine_zone" ]]; then
+    echo "❌ Either machine_region or machine_zone must be specified"
+    exit 1
+  fi
+
+  # If both region and zone are provided, zone takes precedence
+  local zones=()
+  if [[ -n "$machine_zone" ]]; then
+    # Split machine_zone by commas and trim whitespace
+    IFS=',' read -r -a zones <<< "$(echo "$machine_zone" | tr -d '[:space:]' | tr ',' ' ')"
+    if [[ ${#zones[@]} -eq 0 ]]; then
+      echo "❌ No valid zones specified in machine_zone"
+      exit 1
+    fi
+    echo "🔍 Using specified zones: ${zones[*]}"
+  elif [[ -n "$machine_region" ]]; then
+    # If only region is provided, discover zones in the region
+    zones=($(gcloud compute zones list --filter="region:${machine_region}$" --format='value(name)' | sort -r))
+    if [[ ${#zones[@]} -eq 0 ]]; then
+      echo "❌ No zones found in region ${machine_region}"
+      exit 1
+    fi
+    echo "🔍 Found ${#zones[@]} zones in region ${machine_region}"
+  fi
+
   # Create VM with retry logic
   local retry_count=0
+  local zone_index=0
   local vm_created=false
 
   while [[ $retry_count -le $vm_create_retries ]]; do
-    # If this is a retry, create a new VM ID to avoid conflicts
+    # If this is a retry, create a new VM ID to avoid conflicts and try next zone if available
     if [[ $retry_count -gt 0 ]]; then
       VM_ID="gce-gh-runner-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-retry${retry_count}"
       echo "Retrying VM creation (attempt $retry_count of $vm_create_retries)..."
       echo "The new GCE VM will be ${VM_ID}"
+      
+      # Move to the next zone
+      zone_index=$((zone_index + 1))
+      
+      # If we've gone through all zones, start over from the first zone
+      if [[ $zone_index -ge ${#zones[@]} ]]; then
+        zone_index=0
+      fi
+      
+      echo "🔄 Trying zone ${zones[$zone_index]} (${zone_index + 1} of ${#zones[@]})"
     fi
+    
+    # Set the current zone from the zones array
+    local current_zone=${zones[$zone_index]}
+    echo "🏗️  Creating VM in zone: $current_zone"
 
     # Create VM instance
     if gcloud compute instances create ${VM_ID} \
-      --zone=${machine_zone} \
+      --zone=${current_zone} \
       ${disk_size_flag} \
       ${boot_disk_type_flag} \
       --machine-type=${machine_type} \
@@ -364,7 +410,7 @@ function start_vm {
       local i=0
       local wait_time=$((vm_create_timeout / 5))
       while (( i < wait_time )); do
-        GH_READY=$(gcloud compute instances describe ${VM_ID} --zone=${machine_zone} --format='json(labels)' | jq -r .labels.gh_ready)
+        GH_READY=$(gcloud compute instances describe ${VM_ID} --zone=${current_zone} --format='json(labels)' | jq -r .labels.gh_ready)
         if [[ $GH_READY == 1 ]]; then
           vm_created=true
           break
@@ -380,7 +426,7 @@ function start_vm {
         break
       else
         echo "Timeout waiting for ${VM_ID} to be ready after ${vm_create_timeout} seconds, deleting VM..."
-        gcloud --quiet compute instances delete ${VM_ID} --zone=${machine_zone}
+        gcloud --quiet compute instances delete ${VM_ID} --zone=${current_zone}
       fi
     else
       echo "❌ Failed to create VM instance ${VM_ID}"
