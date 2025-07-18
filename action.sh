@@ -47,7 +47,7 @@ vm_create_retries=2
 max_run_duration=1800
 instance_termination_action=DELETE
 
-OPTLIND=1
+OPTIND=1
 while getopts_long :h opt \
   command required_argument \
   token required_argument \
@@ -215,20 +215,19 @@ function start_vm {
   provisioning_model_flag=$([[ -z "${provisioning_model}" ]] || echo "--provisioning-model=${provisioning_model}")
   ephemeral_flag=$([[ "${ephemeral}" == "true" ]] && echo "--ephemeral" || echo "")
   no_external_address_flag=$([[ "${no_external_address}" == "true" ]] && echo "--no-address" || echo "")
-  network_tier_flag=$([[ ! -z "${network_tier}"  ]] && echo "--network-tier=${network_tier}" || echo "")
-  network_flag=$([[ ! -z "${network}"  ]] && echo "--network=${network}" || echo "")
-  subnet_flag=$([[ ! -z "${subnet}"  ]] && echo "--subnet=${subnet}" || echo "")
-  accelerator=$([[ ! -z "${accelerator}"  ]] && echo "--accelerator=${accelerator} --maintenance-policy=TERMINATE" || echo "")
-  maintenance_policy_flag=$([[ -z "${maintenance_policy_terminate}"  ]] || echo "--maintenance-policy=TERMINATE" )
+  network_tier_flag=$([[ -n "${network_tier}" ]] && echo "--network-tier=${network_tier}" || echo "")
+  network_flag=$([[ -n "${network}" ]] && echo "--network=${network}" || echo "")
+  subnet_flag=$([[ -n "${subnet}" ]] && echo "--subnet=${subnet}" || echo "")
+  accelerator=$([[ -n "${accelerator}" ]] && echo "--accelerator=${accelerator} --maintenance-policy=TERMINATE" || echo "")
+  maintenance_policy_flag=$([[ -n "${maintenance_policy_terminate}" ]] && echo "--maintenance-policy=TERMINATE" || echo "")
 
   echo "The new GCE VM will be ${VM_ID}"
 
 
   if $actions_preinstalled ; then
     echo "✅ Startup script won't install GitHub Actions (pre-installed)"
-    startup_script="#!/bin/bash
-    cd /actions-runner
-    $startup_script"
+    runner_setup_script="#!/bin/bash
+    cd /actions-runner"
   else
     if [[ "$runner_ver" = "latest" ]]; then
       response=$(curl -sL https://api.github.com/repos/actions/runner/releases/latest)
@@ -246,21 +245,19 @@ function start_vm {
     fi
     echo "✅ Startup script will install GitHub Actions v$runner_ver"
     if $arm ; then
-      startup_script="#!/bin/bash
+      runner_setup_script="#!/bin/bash
       mkdir /actions-runner
       cd /actions-runner
       curl -o actions-runner-linux-arm64-${runner_ver}.tar.gz -L https://github.com/actions/runner/releases/download/v${runner_ver}/actions-runner-linux-arm64-${runner_ver}.tar.gz
       tar xzf ./actions-runner-linux-arm64-${runner_ver}.tar.gz
-      ./bin/installdependencies.sh && \\
-      $startup_script"
+      ./bin/installdependencies.sh"
     else
-      startup_script="#!/bin/bash
+      runner_setup_script="#!/bin/bash
       mkdir /actions-runner
       cd /actions-runner
       curl -o actions-runner-linux-x64-${runner_ver}.tar.gz -L https://github.com/actions/runner/releases/download/v${runner_ver}/actions-runner-linux-x64-${runner_ver}.tar.gz
       tar xzf ./actions-runner-linux-x64-${runner_ver}.tar.gz
-      ./bin/installdependencies.sh && \\
-      $startup_script"
+      ./bin/installdependencies.sh"
     fi
   fi
 
@@ -339,9 +336,9 @@ function start_vm {
     fi
     
     # Set the current zone from the zones array
-  local current_zone=${zones[$zone_index]}
-  export current_zone  # Make it available to subprocesses
-  echo "🏗️  Creating VM in zone: $current_zone"
+    local current_zone=${zones[$zone_index]}
+    export current_zone  # Make it available to subprocesses
+    echo "🏗️  Creating VM in zone: $current_zone"
 
   # Define startup script now that current_zone is available
   startup_script="
@@ -367,10 +364,13 @@ function start_vm {
 
 	cat <<-EOF > /usr/bin/gce_runner_shutdown.sh
 	#!/bin/sh
-	echo \"✅ Self deleting $VM_ID in ${machine_zone} in ${shutdown_timeout} seconds ...\"
+	echo \"✅ Self deleting $VM_ID in ${current_zone} in ${shutdown_timeout} seconds ...\"
 	# We tear down the machine by starting the systemd service that was registered by the startup script
 	systemctl start shutdown.service
 	EOF
+
+	# Install and configure GitHub Actions runner
+	${runner_setup_script}
 
 	# See: https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/running-scripts-before-or-after-a-job
 	echo "ACTIONS_RUNNER_HOOK_JOB_COMPLETED=/usr/bin/gce_runner_shutdown.sh" >.env
