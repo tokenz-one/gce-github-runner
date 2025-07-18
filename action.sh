@@ -296,7 +296,11 @@ function start_vm {
   local zones=()
   if [[ -n "$machine_zone" ]]; then
     # Split machine_zone by commas and trim whitespace
-    IFS=',' read -r -a zones <<< "$(echo "$machine_zone" | tr -d '[:space:]' | tr ',' ' ')"
+    IFS=',' read -r -a zones <<< "$machine_zone"
+    # Trim whitespace from each zone
+    for i in "${!zones[@]}"; do
+      zones[$i]=$(echo "${zones[$i]}" | xargs)
+    done
     if [[ ${#zones[@]} -eq 0 ]]; then
       echo "❌ No valid zones specified in machine_zone"
       exit 1
@@ -332,7 +336,7 @@ function start_vm {
         zone_index=0
       fi
       
-      echo "🔄 Trying zone ${zones[$zone_index]} (${zone_index + 1} of ${#zones[@]})"
+      echo "🔄 Trying zone ${zones[$zone_index]} ($((zone_index + 1)) of ${#zones[@]})"
     fi
     
     # Set the current zone from the zones array
